@@ -159,6 +159,13 @@ export class GitProcess {
    * And `cancel()` will try to cancel the git process
    */
   public static execTask(args: string[], path: string, options?: IGitExecutionOptions): IGitTask {
+    let pidResolve: { (arg0: any): void; (value: number | PromiseLike<number | undefined> | undefined): void };
+    let pidReject;
+    let pidPromise = new Promise<undefined | number>(function(resolve, reject) {
+      pidResolve = resolve;
+      pidReject = reject;
+    });
+
     let result = new GitTask(
       new Promise<IGitResult>(function(resolve, reject) {
         let customEnv = {}
@@ -240,7 +247,7 @@ export class GitProcess {
           }
         })
 
-        result.setPid(spawnedProcess.pid)
+        pidResolve(spawnedProcess.pid)
 
         ignoreClosedInputStream(spawnedProcess)
 
@@ -252,7 +259,8 @@ export class GitProcess {
         if (options && options.processCallback) {
           options.processCallback(spawnedProcess)
         }
-      })
+      }),
+      pidPromise
     )
 
     return result as IGitTask
@@ -334,31 +342,32 @@ function ignoreClosedInputStream(process: ChildProcess) {
 }
 
 export interface IGitTask {
-  pid?: number
+  pid: Promise<number | undefined>
   readonly result: Promise<IGitResult>
-  setPid(pid: number): void
-  readonly cancel: () => boolean
+  readonly cancel: () => Promise<boolean>
 }
 
 class GitTask implements IGitTask {
-  constructor(result: Promise<IGitResult>) {
+  constructor(result: Promise<IGitResult>, pid: Promise<number | undefined>) {
     this.result = result
-  }
-
-  pid?: number
-  result: Promise<IGitResult>
-  public setPid(pid: number) {
     this.pid = pid
   }
-  public cancel(): boolean {
-    if (this.pid !== undefined) {
+
+  private pid: Promise<number | undefined>
+  result: Promise<IGitResult>
+
+  public async cancel(): Promise<boolean> {
+    const pid = await this.pid
+
+    if (pid !== undefined) {
       try {
-        fs.process.kill(this.pid)
+        fs.process.kill(pid)
         return true
       } catch (e) {
         return false
       }
     }
+
     return false
   }
 }
