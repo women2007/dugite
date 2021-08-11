@@ -160,10 +160,8 @@ export class GitProcess {
    */
   public static execTask(args: string[], path: string, options?: IGitExecutionOptions): IGitTask {
     let pidResolve: { (arg0: any): void; (value: number | PromiseLike<number | undefined> | undefined): void };
-    let pidReject;
-    let pidPromise = new Promise<undefined | number>(function(resolve, reject) {
+    const pidPromise = new Promise<undefined | number>(function(resolve) {
       pidResolve = resolve;
-      pidReject = reject;
     });
 
     let result = new GitTask(
@@ -192,6 +190,9 @@ export class GitProcess {
           stdout,
           stderr
         ) {
+
+          result.updateProcessEnded()
+
           if (!err) {
             resolve({ stdout, stderr, exitCode: 0 })
             return
@@ -341,33 +342,54 @@ function ignoreClosedInputStream(process: ChildProcess) {
   })
 }
 
+
+export enum GitTaskCancelResult {
+  successfulCancel,
+  processAlreadyEnded,
+  noProcessIdDefined,
+  failedToCancel
+}
+
 export interface IGitTask {
-  pid: Promise<number | undefined>
   readonly result: Promise<IGitResult>
-  readonly cancel: () => Promise<boolean>
+  readonly cancel: () => Promise<GitTaskCancelResult>
+  readonly updateProcessEnded: () => void
 }
 
 class GitTask implements IGitTask {
   constructor(result: Promise<IGitResult>, pid: Promise<number | undefined>) {
     this.result = result
     this.pid = pid
+    this.processEnded = false
   }
 
   private pid: Promise<number | undefined>
+  /** Process may end because process completed or process errored. Either way, we can no longer cancel it. */
+  private processEnded: boolean;
+
   result: Promise<IGitResult>
 
-  public async cancel(): Promise<boolean> {
-    const pid = await this.pid
+  public updateProcessEnded() : void {
+    this.processEnded = true
+  }
 
-    if (pid !== undefined) {
-      try {
-        fs.process.kill(pid)
-        return true
-      } catch (e) {
-        return false
-      }
+  public async cancel(): Promise<GitTaskCancelResult> {
+    if(this.processEnded) {
+      return GitTaskCancelResult.processAlreadyEnded
     }
 
-    return false
+    const pid = await this.pid
+
+    if(pid === undefined) {
+      return GitTaskCancelResult.noProcessIdDefined
+    }
+
+    try {
+      fs.process.kill(pid)
+      return GitTaskCancelResult.successfulCancel
+    } catch (e) {
+    }
+
+    return GitTaskCancelResult.failedToCancel
   }
 }
