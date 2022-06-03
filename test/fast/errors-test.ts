@@ -40,26 +40,29 @@ describe('detects errors', () => {
 
     expect(result).toHaveGitError(GitError.BranchAlreadyExists)
   })
-  it('UnsafeDirectory', async () => {
-    const repoName = 'branch-already-exists'
-    const path = await initialize(repoName)
+  if (process.platform === 'win32') {
+    // maybe this is needed because GIT_TEST_ASSUME_DIFFERENT_OWNER is only a git for windows thing?
+    it('UnsafeDirectory', async () => {
+      const repoName = 'branch-already-exists'
+      const path = await initialize(repoName)
 
-    const result = await GitProcess.exec(['status'], path, {
-      env: {
-        GIT_TEST_ASSUME_DIFFERENT_OWNER: 1
-      }
+      const result = await GitProcess.exec(['status'], path, {
+        env: {
+          GIT_TEST_ASSUME_DIFFERENT_OWNER: 1
+        }
+      })
+
+      expect(result).toHaveGitError(GitError.UnsafeDirectory)
+
+      const errorEntry = Object.entries(GitErrorRegexes).find(
+        ([_, v]) => v === GitError.UnsafeDirectory
+      )
+
+      expect(errorEntry).not.toBe(null)
+      const m = result.stderr.match(errorEntry![0])
+
+      // toContain because of realpath and we don't care about /private/ on macOS
+      expect(m![1]).toContain(repoName)
     })
-
-    expect(result).toHaveGitError(GitError.UnsafeDirectory)
-
-    const errorEntry = Object.entries(GitErrorRegexes).find(
-      ([_, v]) => v === GitError.UnsafeDirectory
-    )
-
-    expect(errorEntry).not.toBe(null)
-    const m = result.stderr.match(errorEntry![0])
-
-    // toContain because of realpath and we don't care about /private/ on macOS
-    expect(m![1]).toContain(repoName)
-  })
+  }
 })
